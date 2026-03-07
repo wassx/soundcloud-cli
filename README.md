@@ -105,6 +105,11 @@ sc info https://soundcloud.com/feelmybicep
 
 ### Download
 
+> **⚠️ Legal disclaimer**  
+> Downloading tracks is only permitted when the artist has explicitly enabled the free download option on their track, or the content is released under a licence that allows copying (e.g. Creative Commons).  
+> Downloading copyrighted content without permission violates [SoundCloud's Terms of Use](https://soundcloud.com/terms-of-use) and may infringe copyright law in your jurisdiction.  
+> **Use this feature only for content you have the right to download. You are solely responsible for how you use it.**
+
 ```bash
 sc download https://soundcloud.com/feelmybicep/bicep-glue-clip
 sc download https://soundcloud.com/feelmybicep/bicep-glue-clip --format opus
