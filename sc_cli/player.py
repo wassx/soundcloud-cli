@@ -83,6 +83,7 @@ def _render_vu(
     levels_r: list[float],
     title: str,
     elapsed: float,
+    duration_s: float,
 ) -> Text:
     t = Text(no_wrap=True)
     t.append(" ♪  ", style="bold green")
@@ -96,8 +97,25 @@ def _render_vu(
             t.append(_BLOCKS[idx], style=style)
         t.append("│\n", style="dim")
 
-    m, s = divmod(int(elapsed), 60)
-    t.append(f"\n   {m}:{s:02d}  ", style="dim")
+    # Progress bar
+    bar_width = _BANDS * 2  # same visual width as both channels combined
+    if duration_s > 0:
+        progress = min(elapsed / duration_s, 1.0)
+        filled = int(bar_width * progress)
+        elapsed_s = int(elapsed)
+        total_s = int(duration_s)
+        em, es = divmod(elapsed_s, 60)
+        tm, ts = divmod(total_s, 60)
+        bar = "█" * filled + "░" * (bar_width - filled)
+        t.append(f"\n   ", style="dim")
+        t.append(bar[:filled], style="bold cyan")
+        t.append(bar[filled:], style="dim")
+        t.append(f"  {em}:{es:02d} / {tm}:{ts:02d}", style="dim")
+    else:
+        m, s = divmod(int(elapsed), 60)
+        t.append(f"\n   {m}:{s:02d}", style="dim")
+
+    t.append("   ", style="dim")
     t.append("q", style="bold yellow")
     t.append("/", style="dim")
     t.append("Space", style="bold yellow")
@@ -113,6 +131,7 @@ def _animate_vu(
     proc: subprocess.Popen,
     stop_event: threading.Event,
     title: str,
+    duration_s: float,
 ) -> None:
     levels_l = [0.0] * _BANDS
     levels_r = [0.0] * _BANDS
@@ -124,7 +143,7 @@ def _animate_vu(
             for i in range(_BANDS):
                 _smooth(levels_l, i, peak * _SHAPE[i] * random.uniform(0.55, 1.0))
                 _smooth(levels_r, i, peak * _SHAPE[i] * random.uniform(0.55, 1.0))
-            live.update(_render_vu(levels_l, levels_r, title, time.monotonic() - start))
+            live.update(_render_vu(levels_l, levels_r, title, time.monotonic() - start, duration_s))
             time.sleep(0.05)
 
 
@@ -132,8 +151,8 @@ def _animate_vu(
 # Public API
 # ---------------------------------------------------------------------------
 
-def play(stream_url: str, title: str = "") -> None:
-    """Play stream_url with animated VU meter. Press q/Space to stop."""
+def play(stream_url: str, title: str = "", duration_ms: int = 0) -> None:
+    """Play stream_url with animated VU meter and progress bar. Press q/Space to stop."""
     player = _find_player()
     if player is None:
         _console.print("No audio player found. Install [bold]mpv[/bold] (recommended) or ffplay.")
@@ -156,7 +175,7 @@ def play(stream_url: str, title: str = "") -> None:
 
     still_running = False
     try:
-        _animate_vu(proc, stop_event, title)
+        _animate_vu(proc, stop_event, title, duration_ms / 1000)
         still_running = proc.poll() is None
     except KeyboardInterrupt:
         stop_event.set()

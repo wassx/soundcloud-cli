@@ -63,7 +63,7 @@ def _play_track(track: dict) -> None:
         console.print("[red]No stream URL available for this track.[/red]")
         return
 
-    _player.play(stream_url, title=f"{title} \u2014 {artist}")
+    _player.play(stream_url, title=f"{title} \u2014 {artist}", duration_ms=track.get("duration") or 0)
 
 
 def _handle_api_error(exc: Exception, url: str | None = None) -> None:
