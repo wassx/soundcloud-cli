@@ -7,7 +7,7 @@ A terminal tool for searching, streaming, downloading, and inspecting SoundCloud
  L │▁▂▄▆▇█▇▆▅▄▃▄▅▆▇█▇▅▃▂│
  R │▂▃▅▇█▇▆▅▄▃▂▃▄▆▇█▆▄▂▁│
 
-   0:23  q/Space — stop
+   ████████████░░░░░░░░░░░░░░░░░░░░░░░░░░  0:23 / 1:43   q/Space — stop
 ```
 
 ## Features
@@ -15,6 +15,7 @@ A terminal tool for searching, streaming, downloading, and inspecting SoundCloud
 - **Search** tracks, users, and playlists with a rich table view
 - **Interactive selection** — pick a track by number and stream it instantly after search
 - **Animated VU meter** — L/R bar animation with elapsed timer while playing
+- **Progress bar** — shows elapsed / total time as a live fill bar
 - **Stop control** — press `q`, `Space`, or `Esc` to stop playback at any time
 - **Download** tracks and playlists via yt-dlp (`mp3`, `m4a`, `opus`, `flac`)
 - **Inspect** any track, user, or playlist URL with `sc info`
