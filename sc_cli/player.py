@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import random
 import select
 import shutil
+import socket
 import subprocess
 import sys
 import termios
@@ -25,6 +27,8 @@ _BLOCKS = " ▁▂▃▄▅▆▇█"
 # Bell-curve shape: mids louder than extremes
 _SHAPE = [0.25 + 0.75 * (1 - abs(i - _BANDS // 2) / (_BANDS // 2)) for i in range(_BANDS)]
 
+_SEEK_STEP = 10  # seconds per arrow key press
+
 
 # ---------------------------------------------------------------------------
 # Player helpers
@@ -37,9 +41,13 @@ def _find_player() -> str | None:
     return None
 
 
-def _build_cmd(player: str, stream_url: str, title: str) -> list[str]:
+def _build_cmd(player: str, stream_url: str, title: str, ipc_path: str | None = None) -> list[str]:
     if player == "mpv":
-        return ["mpv", "--no-video", "--really-quiet", f"--title={title}", stream_url]
+        cmd = ["mpv", "--no-video", "--really-quiet", f"--title={title}"]
+        if ipc_path:
+            cmd.append(f"--input-ipc-server={ipc_path}")
+        cmd.append(stream_url)
+        return cmd
     elif player == "ffplay":
         return ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", stream_url]
     else:  # vlc
@@ -47,11 +55,32 @@ def _build_cmd(player: str, stream_url: str, title: str) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Seek via mpv IPC socket
+# ---------------------------------------------------------------------------
+
+def _seek_mpv(socket_path: str, seconds: float) -> None:
+    """Send a relative seek command to mpv via its IPC socket."""
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+            sock.settimeout(0.5)
+            sock.connect(socket_path)
+            cmd = json.dumps({"command": ["seek", seconds, "relative"]}) + "\n"
+            sock.sendall(cmd.encode())
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
 # Keypress listener (raw terminal, non-blocking)
 # ---------------------------------------------------------------------------
 
-def _key_listener(stop_event: threading.Event) -> None:
-    """Set stop_event when the user presses q / Q / Space / Ctrl-C / Esc."""
+def _key_listener(
+    stop_event: threading.Event,
+    seek_offset: list[float],
+    duration_s: float,
+    ipc_path: str | None = None,
+) -> None:
+    """Listen for keypresses: q/Space/Ctrl-C/Esc to stop; ←/→ to seek."""
     if not sys.stdin.isatty():
         return
     fd = sys.stdin.fileno()
@@ -62,7 +91,29 @@ def _key_listener(stop_event: threading.Event) -> None:
             r, _, _ = select.select([sys.stdin], [], [], 0.1)
             if r:
                 ch = sys.stdin.read(1)
-                if ch in ("q", "Q", " ", "\x03", "\x04", "\x1b"):
+                if ch == "\x1b":
+                    # Could be Escape key or start of an arrow-key escape sequence
+                    r2, _, _ = select.select([sys.stdin], [], [], 0.05)
+                    if r2:
+                        ch2 = sys.stdin.read(1)
+                        if ch2 == "[":
+                            r3, _, _ = select.select([sys.stdin], [], [], 0.05)
+                            if r3:
+                                ch3 = sys.stdin.read(1)
+                                if ch3 == "C":  # Right arrow → seek forward
+                                    if ipc_path:
+                                        _seek_mpv(ipc_path, _SEEK_STEP)
+                                    seek_offset[0] += _SEEK_STEP
+                                    continue
+                                elif ch3 == "D":  # Left arrow ← seek backward
+                                    if ipc_path:
+                                        _seek_mpv(ipc_path, -_SEEK_STEP)
+                                    seek_offset[0] -= _SEEK_STEP
+                                    continue
+                    # Escape alone (or unrecognised sequence) → stop
+                    stop_event.set()
+                    break
+                elif ch in ("q", "Q", " ", "\x03", "\x04"):
                     stop_event.set()
                     break
     except Exception:
@@ -116,6 +167,8 @@ def _render_vu(
         t.append(f"\n   {m}:{s:02d}", style="dim")
 
     t.append("   ", style="dim")
+    t.append("←/→", style="bold yellow")
+    t.append(" — seek   ", style="dim")
     t.append("q", style="bold yellow")
     t.append("/", style="dim")
     t.append("Space", style="bold yellow")
@@ -132,6 +185,7 @@ def _animate_vu(
     stop_event: threading.Event,
     title: str,
     duration_s: float,
+    seek_offset: list[float],
 ) -> None:
     levels_l = [0.0] * _BANDS
     levels_r = [0.0] * _BANDS
@@ -143,7 +197,10 @@ def _animate_vu(
             for i in range(_BANDS):
                 _smooth(levels_l, i, peak * _SHAPE[i] * random.uniform(0.55, 1.0))
                 _smooth(levels_r, i, peak * _SHAPE[i] * random.uniform(0.55, 1.0))
-            live.update(_render_vu(levels_l, levels_r, title, time.monotonic() - start, duration_s))
+            elapsed = max(0.0, time.monotonic() - start + seek_offset[0])
+            if duration_s > 0:
+                elapsed = min(elapsed, duration_s)
+            live.update(_render_vu(levels_l, levels_r, title, elapsed, duration_s))
             time.sleep(0.05)
 
 
@@ -159,9 +216,11 @@ def play(stream_url: str, title: str = "", duration_ms: int = 0) -> None:
         _console.print(f"  Stream URL: [dim]{stream_url}[/dim]")
         return
 
+    ipc_path = f"/tmp/sc-cli-mpv-{id(stream_url)}.sock" if player == "mpv" else None
+
     try:
         proc = subprocess.Popen(
-            _build_cmd(player, stream_url, title),
+            _build_cmd(player, stream_url, title, ipc_path),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
@@ -169,13 +228,18 @@ def play(stream_url: str, title: str = "", duration_ms: int = 0) -> None:
         _console.print(f"[red]Failed to start player:[/red] {exc}")
         return
 
+    seek_offset: list[float] = [0.0]
     stop_event = threading.Event()
-    key_thread = threading.Thread(target=_key_listener, args=(stop_event,), daemon=True)
+    key_thread = threading.Thread(
+        target=_key_listener,
+        args=(stop_event, seek_offset, duration_ms / 1000, ipc_path),
+        daemon=True,
+    )
     key_thread.start()
 
     still_running = False
     try:
-        _animate_vu(proc, stop_event, title, duration_ms / 1000)
+        _animate_vu(proc, stop_event, title, duration_ms / 1000, seek_offset)
         still_running = proc.poll() is None
     except KeyboardInterrupt:
         stop_event.set()

@@ -14,6 +14,7 @@ from sc_cli.player import (
     _render_vu,
     _smooth,
     player_available,
+    _SEEK_STEP,
 )
 
 
@@ -78,6 +79,15 @@ class TestBuildCmd:
         assert "--no-video" in cmd
         assert self.URL in cmd
         assert any("--title=" in arg for arg in cmd)
+
+    def test_mpv_command_with_ipc_path(self):
+        cmd = _build_cmd("mpv", self.URL, self.TITLE, ipc_path="/tmp/test.sock")
+        assert "--input-ipc-server=/tmp/test.sock" in cmd
+        assert cmd[-1] == self.URL
+
+    def test_mpv_command_without_ipc_path_has_no_ipc_flag(self):
+        cmd = _build_cmd("mpv", self.URL, self.TITLE)
+        assert not any("--input-ipc-server" in arg for arg in cmd)
 
     def test_ffplay_command(self):
         cmd = _build_cmd("ffplay", self.URL, self.TITLE)
@@ -206,6 +216,12 @@ class TestRenderVu:
         plain = self._plain(result)
         assert "q" in plain
         assert "stop" in plain
+
+    def test_contains_seek_hint(self):
+        result = _render_vu(self._levels(), self._levels(), "T", 0, 0)
+        plain = self._plain(result)
+        assert "seek" in plain
+        assert "←" in plain or "/" in plain  # arrow symbols or separator
 
     def test_elapsed_beyond_duration_clamps_progress(self):
         """elapsed > duration should not crash and should show a full bar."""
