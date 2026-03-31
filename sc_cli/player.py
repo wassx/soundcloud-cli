@@ -23,7 +23,7 @@ from rich.text import Text
 _console = Console()
 
 # VU meter geometry
-_BANDS = 20        # frequency bands per channel
+_BANDS = 36        # frequency bands per channel
 _BLOCKS = " ▁▂▃▄▅▆▇█"
 
 # Bell-curve shape: mids louder than extremes
