@@ -39,8 +39,11 @@ def _fmt_count(n: int | None) -> str:
     return str(n)
 
 
-def _play_track(track: dict) -> None:
-    """Fetch stream URL for *track* and hand off to the player."""
+def _play_track(track: dict) -> str | None:
+    """Fetch stream URL for *track* and hand off to the player.
+
+    Returns ``'quit'`` if the user chose to exit, otherwise ``None``.
+    """
     from . import player as _player
 
     title    = track.get("title", "")
@@ -57,13 +60,13 @@ def _play_track(track: dict) -> None:
             stream_url = _api.get_stream_url(track)
     except Exception as exc:
         console.print(f"[red]Could not fetch stream URL:[/red] {exc}")
-        return
+        return None
 
     if not stream_url:
         console.print("[red]No stream URL available for this track.[/red]")
-        return
+        return None
 
-    _player.play(stream_url, title=f"{title} \u2014 {artist}", duration_ms=track.get("duration") or 0)
+    return _player.play(stream_url, title=f"{title} \u2014 {artist}", duration_ms=track.get("duration") or 0)
 
 
 def _handle_api_error(exc: Exception, url: str | None = None) -> None:
@@ -215,7 +218,9 @@ def _interactive_track_picker(tracks: list[dict]) -> None:
             console.print(f"  [yellow]Please enter a number between 1 and {n}.[/yellow]")
             continue
 
-        _play_track(tracks[idx - 1])
+        result = _play_track(tracks[idx - 1])
+        if result == "quit":
+            break
 
 
 def _print_users_table(users: list[dict], title: str) -> None:
