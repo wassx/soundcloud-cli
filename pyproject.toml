@@ -17,5 +17,14 @@ dependencies = [
 [project.scripts]
 sc = "sc_cli.main:cli"
 
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-cov", "requests-mock"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["sc_cli"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["sc_cli"]
