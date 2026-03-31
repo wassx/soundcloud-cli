@@ -12,6 +12,7 @@ from sc_cli.player import (
     _build_cmd,
     _find_player,
     _render_vu,
+    _render_paused,
     _smooth,
     player_available,
     _SEEK_STEP,
@@ -211,11 +212,11 @@ class TestRenderVu:
         result = _render_vu(levels, levels, "T", 0, 0)
         assert _BLOCKS[-1] in self._plain(result)
 
-    def test_contains_stop_hint(self):
+    def test_contains_pause_hint(self):
         result = _render_vu(self._levels(), self._levels(), "T", 0, 0)
         plain = self._plain(result)
         assert "q" in plain
-        assert "stop" in plain
+        assert "pause" in plain
 
     def test_contains_seek_hint(self):
         result = _render_vu(self._levels(), self._levels(), "T", 0, 0)
@@ -229,3 +230,45 @@ class TestRenderVu:
         plain = self._plain(result)
         bar_width = _BANDS * 2
         assert "█" * bar_width in plain
+
+
+# ---------------------------------------------------------------------------
+# _render_paused
+# ---------------------------------------------------------------------------
+
+class TestRenderPaused:
+    def _plain(self, text) -> str:
+        return text.plain
+
+    def test_contains_title(self):
+        result = _render_paused("My Song", elapsed=30, duration_s=180)
+        assert "My Song" in self._plain(result)
+
+    def test_contains_resume_hint(self):
+        result = _render_paused("T", elapsed=0, duration_s=0)
+        plain = self._plain(result)
+        assert "resume" in plain
+        assert "Space" in plain
+
+    def test_contains_new_song_hint(self):
+        result = _render_paused("T", elapsed=0, duration_s=0)
+        plain = self._plain(result)
+        assert "new song" in plain
+        assert "n" in plain
+
+    def test_contains_exit_hint(self):
+        result = _render_paused("T", elapsed=0, duration_s=0)
+        plain = self._plain(result)
+        assert "exit" in plain
+        assert "q" in plain
+
+    def test_shows_progress_with_duration(self):
+        result = _render_paused("T", elapsed=90, duration_s=180)
+        plain = self._plain(result)
+        assert "1:30" in plain
+        assert "3:00" in plain
+
+    def test_progress_bar_present(self):
+        result = _render_paused("T", elapsed=0, duration_s=120)
+        plain = self._plain(result)
+        assert "░" * (_BANDS * 2) in plain
