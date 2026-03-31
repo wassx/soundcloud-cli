@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import random
 import select
 import shutil
@@ -74,6 +75,11 @@ def _seek_mpv(socket_path: str, seconds: float) -> None:
 # Keypress listener (raw terminal, non-blocking)
 # ---------------------------------------------------------------------------
 
+def _read_byte(fd: int) -> bytes:
+    """Read exactly one raw byte from a file descriptor."""
+    return os.read(fd, 1)
+
+
 def _key_listener(
     stop_event: threading.Event,
     seek_offset: list[float],
@@ -88,24 +94,24 @@ def _key_listener(
     try:
         tty.setcbreak(fd)
         while not stop_event.is_set():
-            r, _, _ = select.select([sys.stdin], [], [], 0.1)
+            r, _, _ = select.select([fd], [], [], 0.1)
             if r:
-                ch = sys.stdin.read(1)
-                if ch == "\x1b":
+                ch = _read_byte(fd)
+                if ch == b"\x1b":
                     # Could be Escape key or start of an arrow-key escape sequence
-                    r2, _, _ = select.select([sys.stdin], [], [], 0.05)
+                    r2, _, _ = select.select([fd], [], [], 0.05)
                     if r2:
-                        ch2 = sys.stdin.read(1)
-                        if ch2 == "[":
-                            r3, _, _ = select.select([sys.stdin], [], [], 0.05)
+                        ch2 = _read_byte(fd)
+                        if ch2 == b"[":
+                            r3, _, _ = select.select([fd], [], [], 0.05)
                             if r3:
-                                ch3 = sys.stdin.read(1)
-                                if ch3 == "C":  # Right arrow → seek forward
+                                ch3 = _read_byte(fd)
+                                if ch3 == b"C":  # Right arrow → seek forward
                                     if ipc_path:
                                         _seek_mpv(ipc_path, _SEEK_STEP)
                                     seek_offset[0] += _SEEK_STEP
                                     continue
-                                elif ch3 == "D":  # Left arrow ← seek backward
+                                elif ch3 == b"D":  # Left arrow ← seek backward
                                     if ipc_path:
                                         _seek_mpv(ipc_path, -_SEEK_STEP)
                                     seek_offset[0] -= _SEEK_STEP
@@ -113,7 +119,7 @@ def _key_listener(
                     # Escape alone (or unrecognised sequence) → stop
                     stop_event.set()
                     break
-                elif ch in ("q", "Q", " ", "\x03", "\x04"):
+                elif ch in (b"q", b"Q", b" ", b"\x03", b"\x04"):
                     stop_event.set()
                     break
     except Exception:
