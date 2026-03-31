@@ -23,7 +23,8 @@ from rich.text import Text
 _console = Console()
 
 # VU meter geometry
-_BANDS = 20        # frequency bands per channel
+_BANDS = 36        # frequency bands per channel
+_ROWS = 3          # vertical rows per channel
 _BLOCKS = " ▁▂▃▄▅▆▇█"
 
 # Bell-curve shape: mids louder than extremes
@@ -219,12 +220,22 @@ def _render_vu(
     t.append(title + "\n", style="bold cyan")
 
     for label, levels in (("L", levels_l), ("R", levels_r)):
-        t.append(f" {label} │", style="dim")
-        for lvl in levels:
-            idx = max(0, min(len(_BLOCKS) - 1, int(lvl * (len(_BLOCKS) - 1))))
-            style = "green" if lvl < 0.55 else ("yellow" if lvl < 0.82 else "bold red")
-            t.append(_BLOCKS[idx], style=style)
-        t.append("│\n", style="dim")
+        for row in range(_ROWS):
+            row_top = (_ROWS - row) / _ROWS
+            row_bot = (_ROWS - row - 1) / _ROWS
+            prefix = f" {label} │" if row == _ROWS - 1 else "   │"
+            t.append(prefix, style="dim")
+            for lvl in levels:
+                if lvl >= row_top:
+                    idx = len(_BLOCKS) - 1
+                elif lvl > row_bot:
+                    frac = (lvl - row_bot) / (row_top - row_bot)
+                    idx = max(1, int(frac * (len(_BLOCKS) - 1)))
+                else:
+                    idx = 0
+                style = "green" if lvl < 0.55 else ("yellow" if lvl < 0.82 else "bold red")
+                t.append(_BLOCKS[idx], style=style)
+            t.append("│\n", style="dim")
 
     _append_progress(t, elapsed, duration_s)
     t.append("   ", style="dim")
