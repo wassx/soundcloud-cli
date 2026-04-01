@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import json
+import pathlib
 import sys
+from datetime import datetime, timezone
 
 import click
 import requests
@@ -14,6 +17,9 @@ from .api import SoundCloudClient
 
 console = Console()
 _api = SoundCloudClient()
+
+_HISTORY_FILE = pathlib.Path.home() / ".local" / "share" / "sc_cli" / "history.json"
+_HISTORY_MAX  = 1000
 
 
 # ---------------------------------------------------------------------------
@@ -37,6 +43,28 @@ def _fmt_count(n: int | None) -> str:
     if n >= 1_000:
         return f"{n/1_000:.1f}K"
     return str(n)
+
+
+def _record_history(track: dict) -> None:
+    entry = {
+        "title":       track.get("title", ""),
+        "artist":      track.get("user", {}).get("username", ""),
+        "url":         track.get("permalink_url", ""),
+        "duration_ms": track.get("duration") or 0,
+        "played_at":   datetime.now(timezone.utc).isoformat(),
+    }
+    _HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        history: list = json.loads(_HISTORY_FILE.read_text()) if _HISTORY_FILE.exists() else []
+    except (json.JSONDecodeError, OSError):
+        history = []
+    history.append(entry)
+    if len(history) > _HISTORY_MAX:
+        history = history[-_HISTORY_MAX:]
+    try:
+        _HISTORY_FILE.write_text(json.dumps(history, indent=2))
+    except OSError:
+        pass
 
 
 def _play_track(track: dict) -> str | None:
@@ -66,6 +94,7 @@ def _play_track(track: dict) -> str | None:
         console.print("[red]No stream URL available for this track.[/red]")
         return None
 
+    _record_history(track)
     return _player.play(stream_url, title=f"{title} \u2014 {artist}", duration_ms=track.get("duration") or 0)
 
 
@@ -413,6 +442,136 @@ def stream(query: str) -> None:
         sys.exit(1)
 
     _play_track(results[0])
+
+
+# ---------------------------------------------------------------------------
+# history
+# ---------------------------------------------------------------------------
+
+@cli.command()
+@click.option(
+    "--limit", "-n",
+    default=20,
+    show_default=True,
+    metavar="N",
+    help="Number of recent entries to show.",
+)
+@click.option(
+    "--clear",
+    is_flag=True,
+    default=False,
+    help="Clear the play history.",
+)
+def history(limit: int, clear: bool) -> None:
+    """Show recently played tracks.
+
+    After listing entries you will be prompted to enter a number to
+    replay a track. Press Enter or q to quit without replaying.
+
+    \b
+    Examples:
+      sc history
+      sc history --limit 50
+      sc history --clear
+    """
+    if clear:
+        if _HISTORY_FILE.exists():
+            _HISTORY_FILE.unlink()
+        console.print("[green]History cleared.[/green]")
+        return
+
+    if not _HISTORY_FILE.exists():
+        console.print("[dim]No play history yet.[/dim]")
+        return
+
+    try:
+        entries: list = json.loads(_HISTORY_FILE.read_text())
+    except (json.JSONDecodeError, OSError) as exc:
+        console.print(f"[red]Could not read history:[/red] {exc}")
+        return
+
+    if not entries:
+        console.print("[dim]No play history yet.[/dim]")
+        return
+
+    recent = entries[-limit:][::-1]  # most-recent first
+
+    table = Table(title="Play History", show_lines=False, header_style="bold magenta")
+    table.add_column("#",        style="dim",   width=3,  justify="right")
+    table.add_column("Title",    style="bold",  min_width=25)
+    table.add_column("Artist",   style="cyan",  min_width=15)
+    table.add_column("Duration", justify="right", width=8)
+    table.add_column("Played At", style="dim",  min_width=16)
+    table.add_column("URL",      style="dim")
+
+    for i, e in enumerate(recent, 1):
+        played_at = e.get("played_at", "")
+        if played_at:
+            try:
+                dt = datetime.fromisoformat(played_at)
+                played_at = dt.strftime("%Y-%m-%d %H:%M")
+            except ValueError:
+                pass
+        table.add_row(
+            str(i),
+            e.get("title")  or "—",
+            e.get("artist") or "—",
+            _fmt_duration(e.get("duration_ms") or 0),
+            played_at or "—",
+            e.get("url")    or "—",
+        )
+
+    console.print(table)
+    _interactive_history_picker(recent)
+
+
+def _interactive_history_picker(entries: list[dict]) -> None:
+    from . import player as _player
+
+    if not _player.player_available():
+        return
+
+    n = len(entries)
+    console.print(f"\n[dim]Enter a number to replay [1\u2013{n}], or press Enter / q to quit.[/dim]")
+
+    while True:
+        try:
+            raw = input("  Play> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            console.print()
+            break
+
+        if raw == "" or raw.lower() in ("q", "quit", "exit"):
+            break
+
+        if not raw.isdigit():
+            console.print(f"  [yellow]Enter a number between 1 and {n}.[/yellow]")
+            continue
+
+        idx = int(raw)
+        if not (1 <= idx <= n):
+            console.print(f"  [yellow]Please enter a number between 1 and {n}.[/yellow]")
+            continue
+
+        entry = entries[idx - 1]
+        url = entry.get("url", "")
+        if not url:
+            console.print("  [red]No URL stored for this entry.[/red]")
+            continue
+
+        try:
+            with console.status("Fetching track …"):
+                data = _api.resolve(url)
+        except Exception as exc:
+            _handle_api_error(exc, url=url)
+
+        if data.get("kind") != "track":
+            console.print("[red]Stored URL no longer points to a track.[/red]")
+            continue
+
+        result = _play_track(data)
+        if result == "quit":
+            break
 
 
 # ---------------------------------------------------------------------------
