@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -382,3 +383,141 @@ class TestStreamCommand:
             result = runner.invoke(cli, ["stream", "bicep"])
 
         assert result.exit_code != 0
+
+
+# ---------------------------------------------------------------------------
+# _record_history / history command
+# ---------------------------------------------------------------------------
+
+class TestRecordHistory:
+    def test_creates_history_file(self, tmp_path):
+        import sc_cli.main as m
+        original = m._HISTORY_FILE
+        m._HISTORY_FILE = tmp_path / "history.json"
+        try:
+            m._record_history(FAKE_TRACKS[0])
+            assert m._HISTORY_FILE.exists()
+            data = json.loads(m._HISTORY_FILE.read_text())
+            assert len(data) == 1
+            assert data[0]["title"] == "Glue"
+            assert data[0]["artist"] == "bicep-music"
+            assert data[0]["url"] == "https://soundcloud.com/bicep-music/glue"
+            assert data[0]["duration_ms"] == 390_000
+            assert "played_at" in data[0]
+        finally:
+            m._HISTORY_FILE = original
+
+    def test_appends_entries(self, tmp_path):
+        import sc_cli.main as m
+        original = m._HISTORY_FILE
+        m._HISTORY_FILE = tmp_path / "history.json"
+        try:
+            m._record_history(FAKE_TRACKS[0])
+            m._record_history(FAKE_TRACKS[1])
+            data = json.loads(m._HISTORY_FILE.read_text())
+            assert len(data) == 2
+            assert data[0]["title"] == "Glue"
+            assert data[1]["title"] == "Rain"
+        finally:
+            m._HISTORY_FILE = original
+
+    def test_caps_at_max_entries(self, tmp_path):
+        import sc_cli.main as m
+        original_file = m._HISTORY_FILE
+        original_max  = m._HISTORY_MAX
+        m._HISTORY_FILE = tmp_path / "history.json"
+        m._HISTORY_MAX  = 3
+        try:
+            for i in range(5):
+                track = dict(FAKE_TRACKS[0], title=f"Track {i}")
+                m._record_history(track)
+            data = json.loads(m._HISTORY_FILE.read_text())
+            assert len(data) == 3
+            assert data[-1]["title"] == "Track 4"
+        finally:
+            m._HISTORY_FILE = original_file
+            m._HISTORY_MAX  = original_max
+
+    def test_handles_corrupt_file_gracefully(self, tmp_path):
+        import sc_cli.main as m
+        original = m._HISTORY_FILE
+        m._HISTORY_FILE = tmp_path / "history.json"
+        m._HISTORY_FILE.write_text("not valid json")
+        try:
+            m._record_history(FAKE_TRACKS[0])
+            data = json.loads(m._HISTORY_FILE.read_text())
+            assert len(data) == 1
+        finally:
+            m._HISTORY_FILE = original
+
+
+class TestHistoryCommand:
+    def _seed(self, path, entries):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(entries))
+
+    def test_history_empty_message(self, tmp_path):
+        import sc_cli.main as m
+        original = m._HISTORY_FILE
+        m._HISTORY_FILE = tmp_path / "history.json"
+        try:
+            runner = CliRunner()
+            with patch("sc_cli.player.player_available", return_value=False):
+                result = runner.invoke(cli, ["history"])
+            assert result.exit_code == 0
+            assert "No play history" in result.output
+        finally:
+            m._HISTORY_FILE = original
+
+    def test_history_shows_entries(self, tmp_path):
+        import sc_cli.main as m
+        original = m._HISTORY_FILE
+        m._HISTORY_FILE = tmp_path / "history.json"
+        entries = [
+            {"title": "Glue", "artist": "bicep-music", "url": "https://soundcloud.com/bicep-music/glue",
+             "duration_ms": 390_000, "played_at": "2025-01-01T12:00:00+00:00"},
+        ]
+        self._seed(m._HISTORY_FILE, entries)
+        try:
+            runner = CliRunner()
+            with patch("sc_cli.player.player_available", return_value=False):
+                result = runner.invoke(cli, ["history"])
+            assert result.exit_code == 0
+            assert "Glue" in result.output
+            assert "bicep-music" in result.output
+        finally:
+            m._HISTORY_FILE = original
+
+    def test_history_clear(self, tmp_path):
+        import sc_cli.main as m
+        original = m._HISTORY_FILE
+        m._HISTORY_FILE = tmp_path / "history.json"
+        self._seed(m._HISTORY_FILE, [{"title": "Glue", "artist": "bicep-music", "url": "", "duration_ms": 0, "played_at": ""}])
+        try:
+            runner = CliRunner()
+            result = runner.invoke(cli, ["history", "--clear"])
+            assert result.exit_code == 0
+            assert "cleared" in result.output.lower()
+            assert not m._HISTORY_FILE.exists()
+        finally:
+            m._HISTORY_FILE = original
+
+    def test_history_limit_option(self, tmp_path):
+        import sc_cli.main as m
+        original = m._HISTORY_FILE
+        m._HISTORY_FILE = tmp_path / "history.json"
+        entries = [
+            {"title": f"Track {i}", "artist": "artist", "url": "", "duration_ms": 0, "played_at": ""}
+            for i in range(10)
+        ]
+        self._seed(m._HISTORY_FILE, entries)
+        try:
+            runner = CliRunner()
+            with patch("sc_cli.player.player_available", return_value=False):
+                result = runner.invoke(cli, ["history", "--limit", "3"])
+            assert result.exit_code == 0
+            # Most recent 3 entries should appear (Track 7, 8, 9)
+            assert "Track 9" in result.output
+            assert "Track 0" not in result.output
+        finally:
+            m._HISTORY_FILE = original
