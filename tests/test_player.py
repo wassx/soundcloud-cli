@@ -250,10 +250,12 @@ class TestRenderPaused:
         assert "resume" in plain
         assert "Space" in plain
 
-    def test_contains_new_song_hint(self):
+    def test_contains_next_and_search_history_hints(self):
         result = _render_paused("T", elapsed=0, duration_s=0)
         plain = self._plain(result)
-        assert "new song" in plain
+        assert "next" in plain
+        assert "search" in plain
+        assert "history" in plain
         assert "n" in plain
 
     def test_contains_exit_hint(self):
