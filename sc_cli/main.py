@@ -215,15 +215,95 @@ def _print_tracks_table(tracks: list[dict], title: str) -> None:
     console.print(table)
 
 
-def _interactive_track_picker(tracks: list[dict]) -> None:
-    """Prompt the user to pick and play tracks from *tracks* in a loop."""
+def _inline_search_and_play() -> str | None:
+    """Prompt for a search query inline, display results, and launch a track picker.
+
+    Returns ``'quit'`` if the user chose to exit entirely, ``None`` otherwise.
+    """
+    console.print()
+    try:
+        query = input("  Search for> ").strip()
+    except (EOFError, KeyboardInterrupt):
+        console.print()
+        return None
+    if not query:
+        return None
+    try:
+        with console.status(f"Searching for [bold]{query}[/bold] …"):
+            results = _api.search_tracks(query, limit=10)
+    except Exception as exc:
+        _handle_api_error(exc)
+        return None
+    if not results:
+        console.print("[yellow]No results found.[/yellow]")
+        return None
+    _print_tracks_table(results, title=f'Tracks — "{query}"')
+    return _interactive_track_picker(results)
+
+
+def _print_history_table(entries: list[dict]) -> None:
+    """Render a Rich table of history *entries* (already sorted newest-first)."""
+    table = Table(title="Play History", show_lines=False, header_style="bold magenta")
+    table.add_column("#",         style="dim",   width=3,  justify="right")
+    table.add_column("Title",     style="bold",  min_width=25)
+    table.add_column("Artist",    style="cyan",  min_width=15)
+    table.add_column("Duration",  justify="right", width=8)
+    table.add_column("Played At", style="dim",   min_width=16)
+    table.add_column("URL",       style="dim")
+
+    for i, e in enumerate(entries, 1):
+        played_at = e.get("played_at", "")
+        if played_at:
+            try:
+                dt = datetime.fromisoformat(played_at)
+                played_at = dt.strftime("%Y-%m-%d %H:%M")
+            except ValueError:
+                pass
+        table.add_row(
+            str(i),
+            e.get("title")  or "—",
+            e.get("artist") or "—",
+            _fmt_duration(e.get("duration_ms") or 0),
+            played_at or "—",
+            e.get("url")    or "—",
+        )
+
+    console.print(table)
+
+
+def _inline_history_and_play() -> str | None:
+    """Load history inline, display it, and launch the history picker.
+
+    Returns ``'quit'`` if the user chose to exit entirely, ``None`` otherwise.
+    """
+    if not _HISTORY_FILE.exists():
+        console.print("[dim]No play history yet.[/dim]")
+        return None
+    try:
+        entries: list = json.loads(_HISTORY_FILE.read_text())
+    except (json.JSONDecodeError, OSError) as exc:
+        console.print(f"[red]Could not read history:[/red] {exc}")
+        return None
+    if not entries:
+        console.print("[dim]No play history yet.[/dim]")
+        return None
+    recent = entries[-20:][::-1]
+    _print_history_table(recent)
+    return _interactive_history_picker(recent)
+
+
+def _interactive_track_picker(tracks: list[dict]) -> str | None:
+    """Prompt the user to pick and play tracks from *tracks* in a loop.
+
+    Returns ``'quit'`` if the user chose to exit entirely, ``None`` otherwise.
+    """
     from . import player as _player
 
     if not _player.player_available():
         console.print(
             "[dim]Tip: install mpv to play tracks directly (mpv is not found).[/dim]"
         )
-        return
+        return None
 
     n = len(tracks)
     console.print(f"\n[dim]Enter a track number to play [1\u2013{n}], or press Enter / q to quit.[/dim]")
@@ -249,7 +329,17 @@ def _interactive_track_picker(tracks: list[dict]) -> None:
 
         result = _play_track(tracks[idx - 1])
         if result == "quit":
-            break
+            return "quit"
+        elif result == "search":
+            r = _inline_search_and_play()
+            if r == "quit":
+                return "quit"
+        elif result == "history":
+            r = _inline_history_and_play()
+            if r == "quit":
+                return "quit"
+
+    return None
 
 
 def _print_users_table(users: list[dict], title: str) -> None:
@@ -495,41 +585,19 @@ def history(limit: int, clear: bool) -> None:
         return
 
     recent = entries[-limit:][::-1]  # most-recent first
-
-    table = Table(title="Play History", show_lines=False, header_style="bold magenta")
-    table.add_column("#",        style="dim",   width=3,  justify="right")
-    table.add_column("Title",    style="bold",  min_width=25)
-    table.add_column("Artist",   style="cyan",  min_width=15)
-    table.add_column("Duration", justify="right", width=8)
-    table.add_column("Played At", style="dim",  min_width=16)
-    table.add_column("URL",      style="dim")
-
-    for i, e in enumerate(recent, 1):
-        played_at = e.get("played_at", "")
-        if played_at:
-            try:
-                dt = datetime.fromisoformat(played_at)
-                played_at = dt.strftime("%Y-%m-%d %H:%M")
-            except ValueError:
-                pass
-        table.add_row(
-            str(i),
-            e.get("title")  or "—",
-            e.get("artist") or "—",
-            _fmt_duration(e.get("duration_ms") or 0),
-            played_at or "—",
-            e.get("url")    or "—",
-        )
-
-    console.print(table)
+    _print_history_table(recent)
     _interactive_history_picker(recent)
 
 
-def _interactive_history_picker(entries: list[dict]) -> None:
+def _interactive_history_picker(entries: list[dict]) -> str | None:
+    """Prompt the user to replay a track from *entries* in a loop.
+
+    Returns ``'quit'`` if the user chose to exit entirely, ``None`` otherwise.
+    """
     from . import player as _player
 
     if not _player.player_available():
-        return
+        return None
 
     n = len(entries)
     console.print(f"\n[dim]Enter a number to replay [1\u2013{n}], or press Enter / q to quit.[/dim]")
@@ -571,7 +639,17 @@ def _interactive_history_picker(entries: list[dict]) -> None:
 
         result = _play_track(data)
         if result == "quit":
-            break
+            return "quit"
+        elif result == "search":
+            r = _inline_search_and_play()
+            if r == "quit":
+                return "quit"
+        elif result == "history":
+            r = _inline_history_and_play()
+            if r == "quit":
+                return "quit"
+
+    return None
 
 
 # ---------------------------------------------------------------------------

@@ -164,6 +164,14 @@ def _key_listener(
                 elif ch in (b"n", b"N"):        # n → stop + return to picker
                     stop_event.set()
                     break
+                elif ch in (b"s", b"S"):        # s → stop + open search
+                    action.append("search")
+                    stop_event.set()
+                    break
+                elif ch in (b"h", b"H"):        # h → stop + open history
+                    action.append("history")
+                    stop_event.set()
+                    break
                 elif ch in (b"q", b"Q", b"\x03", b"\x04"):  # q / Ctrl-C/D → exit
                     action.append("quit")
                     stop_event.set()
@@ -173,6 +181,14 @@ def _key_listener(
                 # ── PLAYING mode ─────────────────────────────────────────
                 if ch in (b"q", b"Q", b" "):   # Space / q → pause
                     pause_event.set()
+                elif ch in (b"s", b"S"):        # s → stop + open search
+                    action.append("search")
+                    stop_event.set()
+                    break
+                elif ch in (b"h", b"H"):        # h → stop + open history
+                    action.append("history")
+                    stop_event.set()
+                    break
                 elif ch in (b"\x03", b"\x04"): # Ctrl-C / Ctrl-D → quit
                     action.append("quit")
                     stop_event.set()
@@ -240,9 +256,13 @@ def _render_vu(
     _append_progress(t, elapsed, duration_s)
     t.append("   ", style="dim")
     t.append("←/→", style="bold yellow")
-    t.append(" — seek   ", style="dim")
+    t.append(" seek  ", style="dim")
     t.append("Space/q", style="bold yellow")
-    t.append(" — pause", style="dim")
+    t.append(" pause  ", style="dim")
+    t.append("s", style="bold yellow")
+    t.append(" search  ", style="dim")
+    t.append("h", style="bold yellow")
+    t.append(" history", style="dim")
     return t
 
 
@@ -254,11 +274,15 @@ def _render_paused(title: str, elapsed: float, duration_s: float) -> Text:
     _append_progress(t, elapsed, duration_s)
     t.append("\n   ")
     t.append("Space/Enter", style="bold yellow")
-    t.append(" — resume   ", style="dim")
+    t.append(" resume  ", style="dim")
     t.append("n", style="bold yellow")
-    t.append(" — new song   ", style="dim")
+    t.append(" next  ", style="dim")
+    t.append("s", style="bold yellow")
+    t.append(" search  ", style="dim")
+    t.append("h", style="bold yellow")
+    t.append(" history  ", style="dim")
     t.append("q", style="bold yellow")
-    t.append(" — exit", style="dim")
+    t.append(" exit", style="dim")
     return t
 
 
@@ -322,8 +346,10 @@ def _animate_vu(
 def play(stream_url: str, title: str = "", duration_ms: int = 0) -> str | None:
     """Play *stream_url* with animated VU meter.
 
-    Returns ``'quit'`` when the user chose to exit the player entirely,
-    or ``None`` when the track finished or the user chose to pick a new song.
+    Returns ``'quit'`` when the user chose to exit entirely,
+    ``'search'`` when the user wants to search for a new track,
+    ``'history'`` when the user wants to browse play history,
+    or ``None`` when the track finished or the user pressed n to pick a new song.
     """
     player = _find_player()
     if player is None:
@@ -379,7 +405,13 @@ def play(stream_url: str, title: str = "", duration_ms: int = 0) -> str | None:
     else:
         _console.print("[dim]■ Stopped.[/dim]")
 
-    return "quit" if "quit" in action else None
+    if "quit" in action:
+        return "quit"
+    if "search" in action:
+        return "search"
+    if "history" in action:
+        return "history"
+    return None
 
 
 def player_available() -> bool:
