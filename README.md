@@ -7,7 +7,8 @@ A terminal tool for searching, streaming, downloading, and inspecting SoundCloud
  L │▁▂▄▆▇█▇▆▅▄▃▄▅▆▇█▇▅▃▂│
  R │▂▃▅▇█▇▆▅▄▃▂▃▄▆▇█▆▄▂▁│
 
-   ████████████░░░░░░░░░░░░░░░░░░░░░░░░░░  0:23 / 1:43   q/Space — stop
+   ████████████░░░░░░░░░░░░░░░░░░░░░░░░░░  0:23 / 1:43
+   ←/→ seek  Space/q pause  s search  h history
 ```
 
 ## Features
@@ -16,7 +17,10 @@ A terminal tool for searching, streaming, downloading, and inspecting SoundCloud
 - **Interactive selection** — pick a track by number and stream it instantly after search
 - **Animated VU meter** — L/R bar animation with elapsed timer while playing
 - **Progress bar** — shows elapsed / total time as a live fill bar
-- **Stop control** — press `q`, `Space`, or `Esc` to stop playback at any time
+- **Pause & seek** — pause with `Space`/`q`, seek with `←`/`→` arrow keys
+- **Search mid-playback** — press `s` to stop and search for a new track without leaving the session
+- **History mid-playback** — press `h` to stop and pick from your recently played tracks
+- **Play history** — `sc history` lists recently played tracks with an interactive replay picker
 - **Download** tracks and playlists via yt-dlp (`mp3`, `m4a`, `opus`, `flac`)
 - **Inspect** any track, user, or playlist URL with `sc info`
 - No login required — uses the public SoundCloud API
@@ -91,11 +95,25 @@ sc play https://soundcloud.com/feelmybicep/bicep-glue-clip
 
 ### Playback controls
 
+**While playing:**
+
 | Key | Action |
 |---|---|
-| `q` / `Q` | Stop |
-| `Space` | Stop |
-| `Esc` / `Ctrl-C` | Stop |
+| `Space` / `q` | Pause |
+| `←` / `→` | Seek backward / forward 10 s |
+| `s` | Stop and search for a new track |
+| `h` | Stop and open play history |
+| `Esc` / `Ctrl-C` | Exit |
+
+**While paused:**
+
+| Key | Action |
+|---|---|
+| `Space` / `Enter` | Resume |
+| `n` | Stop and return to picker |
+| `s` | Stop and search for a new track |
+| `h` | Stop and open play history |
+| `q` / `Ctrl-C` | Exit |
 
 ### Show details about a URL
 
@@ -126,7 +144,7 @@ Playlists and sets are supported.
 sc_cli/
 ├── __init__.py
 ├── api.py      ← SoundCloud API v2 client (auto-scrapes & caches client_id)
-├── player.py   ← subprocess player + VU meter + keypress stop
+├── player.py   ← subprocess player + VU meter + pause/seek/search/history keys
 └── main.py     ← Click CLI commands
 pyproject.toml
 ```
